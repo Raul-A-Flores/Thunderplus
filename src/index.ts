@@ -2,9 +2,22 @@ import { initializeKeypair } from "./initializeKeypair"
 import * as web3 from "@solana/web3.js"
 import * as token from "@solana/spl-token"
 
+import {
+  Metaplex,
+  keypairIdentity,
+  bundlrStorage,
+  toMetaplexFile,
+} from "@metaplex-foundation/js"
+import {
+  DataV2,
+  createCreateMetadataAccountV2Instruction,
+  createUpdateMetadataAccountV2Instruction,
+} from "@metaplex-foundation/mpl-token-metadata"
+import * as fs from "fs"
 
 
-async function createNewMint(
+
+/* async function createNewMint(
     connection: web3.Connection,
     payer: web3.Keypair,
     mintAuthority: web3.PublicKey,
@@ -26,10 +39,10 @@ async function createNewMint(
     );
 
     return tokenMint;
-}
+} */
 
 
-async function createTokenAccount(
+/* async function createTokenAccount(
   connection: web3.Connection,
   payer: web3.Keypair,
   mint: web3.PublicKey,
@@ -47,8 +60,10 @@ async function createTokenAccount(
   )
 
   return tokenAccount
-}
-async function mintTokens(
+} */
+
+
+/* async function mintTokens(
   connection: web3.Connection,
   payer: web3.Keypair,
   mint: web3.PublicKey,
@@ -70,6 +85,81 @@ async function mintTokens(
   console.log(
     `Mint Token Transaction: https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`
   )
+} */
+
+async function createTokenMetadata(
+  connection: web3.Connection,
+  metaplex: Metaplex,
+  mint: web3.PublicKey,
+  user: web3.Keypair,
+  name: string,
+  symbol: string,
+  description: string
+) {
+  // file to buffer
+  const buffer = fs.readFileSync("assets/thunder.png")
+
+  // buffer to metaplex file
+  const file = toMetaplexFile(buffer, "thunder.png")
+
+  // upload image and get image uri
+  const imageUri = await metaplex.storage().upload(file)
+  console.log("image uri:", imageUri)
+
+  // upload metadata and get metadata uri (off chain metadata)
+  const { uri } = await metaplex
+    .nfts()
+    .uploadMetadata({
+      name: name,
+      description: description,
+      image: imageUri,
+    })
+ 
+  console.log("metadata uri:", uri)
+
+  // get metadata account address
+  const metadataPDA = metaplex.nfts().pdas().metadata({mint})
+
+  // onchain metadata format
+  const tokenMetadata = {
+    name: name,
+    symbol: symbol,
+    uri: uri,
+    sellerFeeBasisPoints: 0,
+    creators: null,
+    collection: null,
+    uses: null,
+  } as DataV2
+
+  // transaction to create metadata account
+  const transaction = new web3.Transaction().add(
+    createCreateMetadataAccountV2Instruction(
+      {
+        metadata: metadataPDA,
+        mint: mint,
+        mintAuthority: user.publicKey,
+        payer: user.publicKey,
+        updateAuthority: user.publicKey,
+      },
+      {
+        createMetadataAccountArgsV2: {
+          data: tokenMetadata,
+          isMutable: true,
+        },
+      }
+    )
+  )
+
+  // send transaction
+  const transactionSignature = await web3.sendAndConfirmTransaction(
+    connection,
+    transaction,
+    [user]
+  )
+
+  console.log(
+    `Create Metadata Account: https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`
+  )
 }
 
 
@@ -77,9 +167,7 @@ async function mintTokens(
 
 
 
-
-
-async function main() {
+/* async function main() {
   const connection = new web3.Connection(web3.clusterApiUrl("devnet"))
   const user = await initializeKeypair(connection)
 
@@ -103,6 +191,40 @@ async function main() {
   // Mint 100 tokens to our address
   await mintTokens(connection, user, mint, tokenAccount.address, user, 100)
 }
+ */
+
+async function main() {
+  const connection = new web3.Connection(web3.clusterApiUrl("devnet"))
+  const user = await initializeKeypair(connection)
+
+  console.log("PublicKey:", user.publicKey.toBase58())
+
+  // MAKE SURE YOU REPLACE THIS ADDRESS WITH YOURS!
+  const MINT_ADDRESS = "DgUbdNLJ3Vgrb5cnwms3bt6B7wE8ipW5EMXU8Lc7Dni6"
+
+  // metaplex setup
+  const metaplex = Metaplex.make(connection)
+    .use(keypairIdentity(user))
+    .use(
+      bundlrStorage({
+        address: "https://devnet.bundlr.network",
+        providerUrl: "https://api.devnet.solana.com",
+        timeout: 80000,
+      })
+    )
+  
+  // Calling the token 
+  await createTokenMetadata(
+    connection,
+    metaplex,
+    new web3.PublicKey(MINT_ADDRESS),
+    user,
+    "THUNDERPLUS", // Token name - REPLACE THIS WITH YOURS
+    "THN",     // Token symbol - REPLACE THIS WITH YOURS
+    "Whoever has this can join the Thunder Cult" // Token description - REPLACE THIS WITH YOURS
+  )
+}
+
 
 main()
   .then(() => {
